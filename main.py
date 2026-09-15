@@ -332,17 +332,21 @@ def _validate_predict_inputs(folder_path, name, num_per_plate):
     if not name:
         raise ValueError("Name must be provided")
 
-def predict(folder_path, name, num_per_plate, reanalyze=False, discobox_run=False, 
-           num_recordings=2, count=2, output_folder=None, 
-           pause_callback=None, dead_streak=1):
+def predict(folder_path, name, num_per_plate, reanalyze=False, discobox_run=False,
+           num_recordings=2, count=2, output_folder=None,
+           pause_callback=None, dead_streak=1, enable_text_recognition=True):
     """Main prediction function that orchestrates the analysis process."""
     # Guard clauses
     _validate_predict_inputs(folder_path, name, num_per_plate)
-    
+
     try:
         detector = Detector()
         frames = get_frames(folder_path, discobox_run, reanalyze)
         settings = Settings(folder_path)
+        # GUI-provided runtime toggle, not something read from .settings.txt:
+        # lets users skip the heavy OCR model on underpowered machines and
+        # label zones manually instead.
+        settings.enable_text_recognition = enable_text_recognition
     except Exception as e:
         raise RuntimeError(f"Failed to initialize detector or load frames: {e}")
     

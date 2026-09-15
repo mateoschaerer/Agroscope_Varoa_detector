@@ -45,6 +45,9 @@ class MiteManager:
             0: "text_zone",
             1: "mite_zone"
         }
+        # Set before get_zones/getMites: _read_zone_labels (called from getMites)
+        # needs settings.enable_text_recognition to decide whether to run OCR.
+        self.settings = settings
 
         self.get_zones(coordinate_file)
         self.getMites(mites_detection)
@@ -53,7 +56,6 @@ class MiteManager:
         self.data = pd.DataFrame()
         self.mite_data = pd.DataFrame()
         self.reloaded = False
-        self.settings = settings
 
     def save(self):
         with open(self.save_path, 'wb') as f:
@@ -189,10 +191,14 @@ class MiteManager:
         return True
 
     def _read_zone_labels(self):
-        """Read labels from text zones using OCR."""
+        """Read labels from text zones using OCR, unless disabled in settings."""
+        if not getattr(self.settings, 'enable_text_recognition', True):
+            print("Text recognition disabled - leaving zone labels for manual entry.")
+            return
+
         text_reader = TextReader()
         print("Text reader loaded...")
-        
+
         for zone in self.zones:
             if not zone.mites:  # Skip zones without mites
                 continue
