@@ -53,20 +53,26 @@ class ExcelGenerator:
         wb.save(excel_path)
         print(f"Summary Excel with sheets per recording saved to {excel_path}")
     
-    def create_mites_summary(self, mite_data, zones, by_mite_path, excel_path, 
+    def create_mites_summary(self, mite_data, zones, by_mite_path, excel_path,
                            frame_path, stage_zones):
         """Create Excel summary with mite status data."""
         # Guard clause
         if mite_data.empty:
             raise ValueError("No mite data available for Excel generation")
-        
+
         wb = Workbook()
         wb.remove(wb.active)
-        
+
+        # Decode frame_0 once and reuse it for every zone's ROI crops instead
+        # of re-reading the same file from disk per zone.
+        frame0 = cv2.imread(frame_path)
+        if frame0 is None:
+            print(f"Frame 0 image not found at {frame_path}")
+
         for zone in zones:
-            self._create_mite_zone_sheet(wb, mite_data, zone, by_mite_path, 
-                                       frame_path, stage_zones)
-        
+            self._create_mite_zone_sheet(wb, mite_data, zone, by_mite_path,
+                                       frame0, stage_zones)
+
         wb.save(excel_path)
         print(f"Excel summary with zone-wise sheets saved to {excel_path}")
     
@@ -97,38 +103,46 @@ class ExcelGenerator:
         survival_path = os.path.join(base_path, f'recording{recording_num}', 'survival.png')
         self._add_image_to_sheet(ws, survival_path, 'H1')
     
-    def _create_mite_zone_sheet(self, wb, mite_data, zone, by_mite_path, 
-                              frame_path, stage_zones):
+    def _create_mite_zone_sheet(self, wb, mite_data, zone, by_mite_path,
+                              frame0, stage_zones):
         """Create a sheet for a specific mite zone."""
         zone_df = mite_data[mite_data['zone ID'] == zone]
-        
+
         # Pivot so rows = mite ID, cols = recording, values = status
         pivot = zone_df.pivot(index='mite ID', columns='recording', values='status')
-        
+        pivot_reset = pivot.reset_index()
+
+        # Per-mite streak bounds, looked up once per mite instead of
+        # re-filtering zone_df for every single cell. Streak columns are only
+        # present once post_process_mite_data has run; fall back to no-streak
+        # highlighting when they're absent instead of raising KeyError.
+        has_streak_data = {'streak_start', 'streak_end'}.issubset(zone_df.columns)
+        if has_streak_data:
+            streak_lookup = (
+                zone_df.drop_duplicates('mite ID')
+                       .set_index('mite ID')[['streak_start', 'streak_end']]
+            )
+        else:
+            streak_lookup = None
+
         ws = wb.create_sheet(title=str(zone))
-        
+
         # Write headers and data with conditional formatting
-        for r_idx, row in enumerate(dataframe_to_rows(pivot.reset_index(), index=False, header=True), 1):
+        for r_idx, row in enumerate(dataframe_to_rows(pivot_reset, index=False, header=True), 1):
             for c_idx, value in enumerate(row, 1):
                 cell = ws.cell(row=r_idx, column=c_idx, value=f"{value*self.settings.recording_timeout} min" if (r_idx == 1 and c_idx > 1) else value)
-                
+
                 if r_idx == 1 or c_idx == 1:
                     continue  # skip header cells
 
-                mite_id = pivot.reset_index().iloc[r_idx-2, 0]  # mite ID from first column
-                recording_num = pivot.reset_index().columns[c_idx-1]  # column = recording number
+                mite_id = pivot_reset.iloc[r_idx-2, 0]  # mite ID from first column
+                recording_num = pivot_reset.columns[c_idx-1]  # column = recording number
 
+                streak_start = streak_end = np.nan
+                if streak_lookup is not None and mite_id in streak_lookup.index:
+                    streak_start = streak_lookup.at[mite_id, 'streak_start']
+                    streak_end = streak_lookup.at[mite_id, 'streak_end']
 
-
-
-                # Get streak start for this mite
-                streak_start = zone_df.loc[zone_df['mite ID'] == mite_id, 'streak_start'].values
-                streak_start = streak_start[0] if len(streak_start) > 0 else np.nan
-
-                # Get streak end for this mite
-                streak_end = zone_df.loc[zone_df['mite ID'] == mite_id, 'streak_end'].values
-                streak_end = streak_end[0] if len(streak_end) > 0 else np.nan
-                
                 if not np.isnan(streak_start) and recording_num in range(int(streak_start), int(streak_end) + 1):
                     cell.fill = self.dark_red_fill  # fill dark red for streak
                 else:
@@ -137,13 +151,13 @@ class ExcelGenerator:
                     elif value == 'dead':
                         cell.fill = self.red_fill
 
-            
+
         # Add zone plot image
         zone_plot_path = os.path.join(by_mite_path, "zones", f"{zone}.png")
         self._add_zone_image(ws, zone_plot_path)
-        
+
         # Add detection label and ROI images
-        self._add_roi_images(ws, zone, stage_zones, frame_path, by_mite_path)
+        self._add_roi_images(ws, zone, stage_zones, frame0, by_mite_path)
     
     def _add_zone_image(self, ws, image_path):
         """Add zone plot image to worksheet."""
@@ -157,21 +171,20 @@ class ExcelGenerator:
             except Exception as e:
                 print(f"Failed to add zone image: {e}")
     
-    def _add_roi_images(self, ws, zone, stage_zones, frame_path, by_mite_path):
+    def _add_roi_images(self, ws, zone, stage_zones, frame0, by_mite_path):
         """Add ROI images for the zone."""
         # Add header for ROI section
         ws.merge_cells('S1:U1')
         ws['S1'] = "first recording detections"
         ws['S1'].font = ws['S1'].font.copy(bold=True)
         ws['S1'].alignment = ws['S1'].alignment.copy(horizontal='center')
-        
-        # Add ROI images
+
+        # Add ROI images (frame0 is decoded once by the caller and reused
+        # across all zones)
         try:
-            frame0 = cv2.imread(frame_path)
             if frame0 is None:
-                print(f"Frame 0 image not found at {frame_path}")
                 return
-            
+
             idx = 0
             for zone_obj in stage_zones:
                 if any(z.text == zone for z in zone_obj.text_zones):

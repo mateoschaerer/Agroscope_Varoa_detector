@@ -8,7 +8,7 @@ PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from classes.detector import Detector
+from classes.detector import get_detector
 from classes.settings import Settings
 from utils.tools import get_frames
 from classes.MiteManager import MiteManager
@@ -36,7 +36,7 @@ class AnalysisState:
         self.recording_number = recording_number
         self.pause_event.set()  # Signal that pause occurred
         self.continue_event.clear()  # Clear continue event
-        print(f"⏸️ Analysis paused after recording {recording_number}")
+        print(f"[INFO] Analysis paused after recording {recording_number}")
     
     def resume_analysis(self):
         """Resume analysis after user confirmation"""
@@ -45,12 +45,12 @@ class AnalysisState:
             self.user_confirmed_continue = True
             self.paused = False
             self.continue_event.set()  # Signal to continue
-            print("▶️ Analysis resuming...")
+            print("[INFO] Analysis resuming...")
     
     def wait_for_continue(self, timeout=None):
         """Wait for user to continue analysis"""
         if self.paused:
-            print("⏳ Waiting for user to continue analysis...")
+            print("[INFO] Waiting for user to continue analysis...")
             self.continue_event.wait(timeout)
             return self.user_confirmed_continue
         return True
@@ -62,7 +62,7 @@ analysis_state = AnalysisState()
 
 def continue_analysis_from_gui():
     """Function called by GUI to continue analysis after pause"""
-    print("📱 GUI requested analysis continuation")
+    print("[INFO] GUI requested analysis continuation")
     analysis_state.resume_analysis()
     return True
 
@@ -182,7 +182,7 @@ def reanalyze_recording(results_base, num_per_plate, detector, frames_by_recordi
     
     # First run a lightweight recording0: detect + read text + save stage only
     try:
-        print("🔎 Running preliminary recording0 (detect + read text) to produce editable stage")
+        print("[INFO] Running preliminary recording0 (detect + read text) to produce editable stage")
         frames0 = frames_by_recording[0]
         stage0 = _process_recording0(detector, frames0, num_per_plate, name, discobox_run,
                                      results_folder=os.path.join(reanalyze_path, "recording0"), settings=settings)
@@ -190,17 +190,17 @@ def reanalyze_recording(results_base, num_per_plate, detector, frames_by_recordi
         # Pause and hand the stage to the GUI for verification before recording1
         analysis_state.pause_after_recording1(stage0, recording_number=0)
         if pause_callback:
-            print("📞 Calling GUI pause callback for recording0 stage...")
+            print("[INFO] Calling GUI pause callback for recording0 stage...")
             pause_callback(stage0)
 
-        print("⏸️ Analysis paused after recording0. Waiting for user confirmation to continue...")
+        print("[INFO] Analysis paused after recording0. Waiting for user confirmation to continue...")
         analysis_state.wait_for_continue()
 
         if not analysis_state.user_confirmed_continue:
-            print("❌ User did not confirm continuation after recording0 - stopping analysis")
+            print("[ERROR] User did not confirm continuation after recording0 - stopping analysis")
             return
 
-        print("✅ User confirmed continuation after recording0 - proceeding with recording 1...")
+        print("[OK] User confirmed continuation after recording0 - proceeding with recording 1...")
 
     except Exception as e:
         print(f"Warning: recording0 pass failed: {e}")
@@ -227,8 +227,13 @@ def reanalyze_recording(results_base, num_per_plate, detector, frames_by_recordi
             discobox_run=discobox_run
         )
 
-        plotter.save_frame0_detection(frames[0], thickness=2)
         plotter.make_survival_graph(recording_number=recording_number)
+
+    # frame_path is derived from the shared general_summary_path (not the
+    # per-recording folder), so every iteration above would overwrite the same
+    # file - write it once, after the loop, instead of once per recording.
+    if plotter:
+        plotter.save_frame0_detection(frames[0], thickness=2)
 
     # general summaries
     if plotter and stage:
@@ -264,7 +269,7 @@ def continue_reanalyze_from_recording2(results_base, num_per_plate, detector, fr
     if not reanalyze_path:
         raise ValueError("No paused analysis found to continue")
     
-    print(f"📁 Continuing analysis from: {reanalyze_path}")
+    print(f"[INFO] Continuing analysis from: {reanalyze_path}")
     
     plotter = None
     stage = None
@@ -275,7 +280,7 @@ def continue_reanalyze_from_recording2(results_base, num_per_plate, detector, fr
         frames = frames_by_recording[i]
         results_folder = os.path.join(reanalyze_path, f"recording{recording_number}")
         
-        print(f"🔄 Processing recording {recording_number}...")
+        print(f"[INFO] Processing recording {recording_number}...")
         plotter, stage = _process_single_recording(
             detector, frames, num_per_plate, name, ground_truth,
             results_folder, discobox_run, recording_number, dead_streak=dead_streak, num_recordings=len(frames_by_recording), settings=settings
@@ -289,7 +294,7 @@ def continue_reanalyze_from_recording2(results_base, num_per_plate, detector, fr
     pause_file = os.path.join(reanalyze_path, "pause_analysis.flag")
     if os.path.exists(pause_file):
         os.remove(pause_file)
-        print("🗑️ Removed pause flag file")
+        print("[INFO] Removed pause flag file")
 
 
 def analyze_recording(results_base, num_per_plate, detector, frames, discobox_run, 
@@ -340,7 +345,7 @@ def predict(folder_path, name, num_per_plate, reanalyze=False, discobox_run=Fals
     _validate_predict_inputs(folder_path, name, num_per_plate)
 
     try:
-        detector = Detector()
+        detector = get_detector()
         frames = get_frames(folder_path, discobox_run, reanalyze)
         settings = Settings(folder_path)
         # GUI-provided runtime toggle, not something read from .settings.txt:
