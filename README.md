@@ -28,9 +28,16 @@ git clone https://github.com/Mateo-Schaerer-Gonzalez/Agroscope_Varoa_detector.gi
 # 2. Navigate into the project directory
 cd Agroscope_Varoa_detector
 
-# 3. Run the installation script (Windows)
+# 3. Run the installation script
+# Windows
 install.cmd
+
+# Linux
+chmod +x install.sh
+./install.sh
 ```
+
+The Linux installer creates/updates a conda environment from `env_linux.yaml`, a `run_varroa_detector.sh` launcher script, and an application menu / desktop entry named "Varroa Detector".
 ---
 
 ## ▶️ Usage  
