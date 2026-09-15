@@ -63,3 +63,18 @@ class TextReader:
         return text.rstrip(string.punctuation + " ")
 
 
+_text_reader_instance = None
+
+
+def get_text_reader():
+    """Return a process-wide cached TextReader.
+
+    Loading trocr-large-handwritten from disk/HF cache takes a long time; reusing
+    one instance across analyses run in the same app session avoids reloading it
+    every time the user starts a new analysis.
+    """
+    global _text_reader_instance
+    if _text_reader_instance is None:
+        _text_reader_instance = TextReader()
+    return _text_reader_instance
+

@@ -1,7 +1,7 @@
 import cv2
 from classes.mite import Mite
 from classes.Rect import TextZone, MiteZone
-from classes.TextReader import TextReader
+from classes.TextReader import get_text_reader
 from PIL import Image
 import pandas as pd
 import pickle
@@ -61,6 +61,18 @@ class MiteManager:
         with open(self.save_path, 'wb') as f:
             pickle.dump(self, f)
 
+    def __getstate__(self):
+        # The raw frame stack (self.frames) is only read while the manager is
+        # first built (getMites/_read_zone_labels, recording0). Every reload
+        # re-attaches fresh frames via update_mites(), so excluding it here
+        # keeps save() from serializing the full per-recording image stack to
+        # disk on every recording.
+        state = self.__dict__.copy()
+        state['frames'] = None
+        return state
+
+    def __setstate__(self, state):
+        self.__dict__.update(state)
 
     def load_miteManager(self,frames):
         with open(self.save_path, 'rb') as f:
@@ -196,7 +208,7 @@ class MiteManager:
             print("Text recognition disabled - leaving zone labels for manual entry.")
             return
 
-        text_reader = TextReader()
+        text_reader = get_text_reader()
         print("Text reader loaded...")
 
         for zone in self.zones:
@@ -230,7 +242,8 @@ class MiteManager:
         """Update mites with new frame data."""
         if frames is None or len(frames) == 0:
             raise ValueError("Frames must be provided and not empty")
-        
+
+        self.frames = frames
         for zone in self.zones:
             for mite in zone.mites:
                 mite.update_ROI(frames)

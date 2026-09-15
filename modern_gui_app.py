@@ -55,27 +55,36 @@ class _SilentMessageBox:
 messagebox = _SilentMessageBox()
 
 class SplashScreen:
-    def __init__(self, duration=3000):
+    """Startup splash screen.
+
+    The logo is drawn with plain Canvas shapes (a small bee bitmap) instead of
+    emoji glyphs, so it renders identically everywhere - including minimal
+    Linux installs without a color-emoji font, where emoji characters show up
+    as empty boxes.
+    """
+
+    def __init__(self, duration=1400):
         self.duration = duration
+        self._closed = False
         self.splash = tk.Toplevel()
         self.splash.title("")
-        self.splash.geometry("600x400")
+        self.splash.geometry("520x360")
         self.splash.configure(bg='#2d7d32')
         self.splash.overrideredirect(True)
-        
+
         # Create splash content first
         self.create_splash_content()
-        
+
         # Center splash screen after content is created
         self.center_splash()
-        
+
         # Auto close after duration
         self.splash.after(self.duration, self.close_splash)
-        
+
         # Make sure splash is on top
         self.splash.lift()
         self.splash.focus_force()
-        
+
     def center_splash(self):
         # Force window to update and calculate actual size
         self.splash.update_idletasks()
@@ -90,9 +99,9 @@ class SplashScreen:
         
         # If still no size, use default
         if window_width <= 1:
-            window_width = 600
+            window_width = 520
         if window_height <= 1:
-            window_height = 400
+            window_height = 360
         
         # Calculate center position
         x = (screen_width // 2) - (window_width // 2)
@@ -111,105 +120,108 @@ class SplashScreen:
         # Main container
         main_frame = tk.Frame(self.splash, bg='#2d7d32')
         main_frame.pack(expand=True, fill='both')
-        
+
+        # Logo: small canvas-drawn bee bitmap (no emoji font required)
+        self.logo_canvas = tk.Canvas(
+            main_frame, width=120, height=100,
+            bg='#2d7d32', highlightthickness=0
+        )
+        self.logo_canvas.pack(pady=(36, 10))
+        self._draw_bee_bitmap(self.logo_canvas, 60, 52)
+
         # Title
         title_label = tk.Label(
             main_frame,
-            text="🐝 Varroa Detector",
-            font=('Segoe UI', 32, 'bold'),
+            text="Varroa Detector",
+            font=('Segoe UI', 28, 'bold'),
             fg='#ffc107',
             bg='#2d7d32'
         )
-        title_label.pack(pady=(60, 20))
-        
+        title_label.pack(pady=(4, 6))
+
         # Subtitle
         subtitle_label = tk.Label(
             main_frame,
             text="AI-Powered Mite Survival Assessment Tool",
-            font=('Segoe UI', 16),
+            font=('Segoe UI', 13),
             fg='white',
             bg='#2d7d32'
         )
-        subtitle_label.pack(pady=(0, 40))
-        
-        # Bee emoji animation area
-        self.bee_label = tk.Label(
-            main_frame,
-            text="🐝",
-            font=('Segoe UI', 48),
-            fg='#ffc107',
-            bg='#2d7d32'
-        )
-        self.bee_label.pack(pady=20)
-        
+        subtitle_label.pack(pady=(0, 30))
+
         # Loading text
         loading_label = tk.Label(
             main_frame,
             text="Loading...",
-            font=('Segoe UI', 14),
+            font=('Segoe UI', 12),
             fg='white',
             bg='#2d7d32'
         )
-        loading_label.pack(pady=(20, 0))
-        
-        # Progress bar
+        loading_label.pack(pady=(10, 0))
+
+        # Progress bar (decorative, timed to the fixed splash duration - not
+        # tied to backend work, so it always fills smoothly)
         progress_frame = tk.Frame(main_frame, bg='#2d7d32')
-        progress_frame.pack(pady=20, padx=100, fill='x')
-        
+        progress_frame.pack(pady=20, padx=90, fill='x')
+
         self.progress_bar = tk.Canvas(
-            progress_frame, 
-            height=6, 
-            bg='#1b5e20', 
+            progress_frame,
+            height=6,
+            bg='#1b5e20',
             highlightthickness=0
         )
         self.progress_bar.pack(fill='x')
-        
-        # Start animations
-        self.animate_progress()
-        self.animate_bee()
-        
-    def animate_progress(self):
-        # Animated progress bar
-        def update_progress():
-            for i in range(101):
-                try:
-                    if hasattr(self, 'progress_bar') and self.progress_bar.winfo_exists():
-                        self.progress_bar.delete("all")
-                        width = self.progress_bar.winfo_width()
-                        progress_width = (width * i) / 100
-                        self.progress_bar.create_rectangle(
-                            0, 0, progress_width, 6,
-                            fill='#ffc107', outline=''
-                        )
-                        self.splash.update()
-                        time.sleep(0.02)
-                    else:
-                        break
-                except (AttributeError, tk.TclError):
-                    break
-        
-        # Run in thread to avoid blocking
-        threading.Thread(target=update_progress, daemon=True).start()
-        
-    def animate_bee(self):
-        # Simple bee animation
-        bees = ["🐝", "🐛", "🐝", "🐛"]
-        self.bee_index = 0
-        
-        def update_bee():
-            try:
-                if hasattr(self, 'bee_label') and self.bee_label.winfo_exists():
-                    self.bee_label.configure(text=bees[self.bee_index])
-                    self.bee_index = (self.bee_index + 1) % len(bees)
-                    self.splash.after(500, update_bee)
-            except (AttributeError, tk.TclError):
-                pass
-        
-        update_bee()
-        
+
+        # Animate on the main thread via .after() - a background thread
+        # calling into Tk (the previous approach) is unsafe and would raise
+        # "main thread is not in main loop" if the window closes mid-animation.
+        self._progress_start = time.monotonic()
+        self._animate_progress_step()
+
+    @staticmethod
+    def _draw_bee_bitmap(canvas, cx, cy):
+        """Draw a small flat-style bee icon from plain shapes."""
+        # Wings
+        canvas.create_oval(cx - 46, cy - 34, cx - 8, cy - 2, fill='#eafaf1', outline='#a5d6a7')
+        canvas.create_oval(cx + 8, cy - 34, cx + 46, cy - 2, fill='#eafaf1', outline='#a5d6a7')
+        # Body
+        canvas.create_oval(cx - 30, cy - 18, cx + 30, cy + 24, fill='#ffc107', outline='#3e2723', width=2)
+        # Stripes
+        for dx in (-15, 0, 15):
+            canvas.create_rectangle(cx + dx - 4, cy - 18, cx + dx + 4, cy + 24, fill='#3e2723', outline='')
+        # Head
+        canvas.create_oval(cx - 13, cy - 32, cx + 13, cy - 10, fill='#3e2723', outline='')
+        # Antennae
+        canvas.create_line(cx - 6, cy - 30, cx - 12, cy - 42, fill='#3e2723', width=2)
+        canvas.create_line(cx + 6, cy - 30, cx + 12, cy - 42, fill='#3e2723', width=2)
+
+    def _animate_progress_step(self):
+        try:
+            if self._closed or not self.progress_bar.winfo_exists():
+                return
+
+            elapsed = time.monotonic() - self._progress_start
+            fraction = min(1.0, elapsed / max(self.duration / 1000, 0.001))
+
+            width = self.progress_bar.winfo_width()
+            self.progress_bar.delete("all")
+            self.progress_bar.create_rectangle(
+                0, 0, width * fraction, 6,
+                fill='#ffc107', outline=''
+            )
+        except (tk.TclError, RuntimeError):
+            return
+
+        if fraction < 1.0 and not self._closed:
+            self.splash.after(30, self._animate_progress_step)
+
     def close_splash(self):
+        self._closed = True
         if hasattr(self, 'splash'):
-            self.splash.destroy()
+            try:
+                self.splash.destroy()
+            except (tk.TclError, RuntimeError):
+                pass
 
 
 class ModernVarroaDetectorApp:
@@ -220,12 +232,12 @@ class ModernVarroaDetectorApp:
             self.root = TkinterDnD.Tk()
             self.dnd_available = True
             self.DND_FILES = DND_FILES
-            print("✅ Drag-and-drop support enabled (tkinterdnd2 detected)")
+            print("[OK] Drag-and-drop support enabled (tkinterdnd2 detected)")
         except Exception:
             self.root = tk.Tk()
             self.dnd_available = False
             self.DND_FILES = None
-            print("ℹ️ tkinterdnd2 not available at startup – drag-and-drop disabled (click to browse still works)")
+            print("[INFO] tkinterdnd2 not available at startup - drag-and-drop disabled (click to browse still works)")
 
         # Set window icon (taskbar + title bar) to app icon when possible
         try:
@@ -270,12 +282,12 @@ class ModernVarroaDetectorApp:
 
         # Hide main window initially and show splash
         self.root.withdraw()
-        self.splash = SplashScreen(duration=3000)
-        self.root.after(3200, self.initialize_main_window)
+        self.splash = SplashScreen(duration=1200)
+        self.root.after(1300, self.initialize_main_window)
         
     def initialize_main_window(self):
         """Initialize the main application window after splash screen"""
-        self.root.title("🐝 Varroa Detector - AI-Powered Mite Analysis")
+        self.root.title("Varroa Detector - AI-Powered Mite Analysis")
         self.root.geometry("1000x800")
         self.root.minsize(900, 700)
         
@@ -287,7 +299,7 @@ class ModernVarroaDetectorApp:
             from classes.MiteManager import MiteManager
             with open(mite_manager_path, 'rb') as f:
                 self.mite_manager = pickle.load(f)
-            print(f"✅ Loaded MiteManager at startup with {len(self.mite_manager.zones)} zones")
+            print(f"[OK] Loaded MiteManager at startup with {len(self.mite_manager.zones)} zones")
         
         # Variables
         self.selected_folder = tk.StringVar()
@@ -295,6 +307,8 @@ class ModernVarroaDetectorApp:
         self.plates_per_recording = tk.StringVar(value="1")
         self.dead_streak = tk.StringVar(value="2")
         self.enable_ocr = tk.BooleanVar(value=True)
+        self._ocr_enabled_for_run = True
+        self._manual_labels_prompted = False
         self.analysis_running = False
         self.results_path = None
         self.temp_results_dir = None  # Store temp directory path
@@ -426,7 +440,7 @@ class ModernVarroaDetectorApp:
             if not os.path.exists(outputs_dir):
                 return
             
-            print("🧹 Cleaning up previous analysis results...")
+            print("[INFO] Cleaning up previous analysis results...")
             
             # More aggressive cleanup approach
             import subprocess
@@ -441,13 +455,13 @@ class ModernVarroaDetectorApp:
                             # Try multiple approaches for stubborn folders
                             success = self.force_remove_directory(reanalysis_path)
                             if success:
-                                print(f"✅ Removed: {item}")
+                                print(f"[OK] Removed: {item}")
                             else:
-                                print(f"⚠️  Could not remove {item} - will try alternative approach")
+                                print(f"[WARN] Could not remove {item} - will try alternative approach")
                                 # Alternative: try to remove individual files first
                                 self.remove_files_recursively(reanalysis_path)
                         except Exception as e:
-                            print(f"⚠️  Could not remove {item}: {e}")
+                            print(f"[WARN] Could not remove {item}: {e}")
             
             # Also clean up the results folder if it exists
             results_path = os.path.join(outputs_dir, "results")
@@ -455,17 +469,17 @@ class ModernVarroaDetectorApp:
                 try:
                     success = self.force_remove_directory(results_path)
                     if success:
-                        print("✅ Removed: results folder")
+                        print("[OK] Removed: results folder")
                     else:
-                        print("⚠️  Could not remove results folder - trying alternative approach")
+                        print("[WARN] Could not remove results folder - trying alternative approach")
                         self.remove_files_recursively(results_path)
                 except Exception as e:
-                    print(f"⚠️  Could not remove results folder: {e}")
+                    print(f"[WARN] Could not remove results folder: {e}")
             
-            print("🎉 Startup cleanup completed!")
+            print("[OK] Startup cleanup completed!")
             
         except Exception as e:
-            print(f"⚠️  Error during startup cleanup: {e}")
+            print(f"[WARN] Error during startup cleanup: {e}")
     
     def force_remove_directory(self, directory_path):
         """Force remove a directory using multiple methods"""
@@ -607,7 +621,7 @@ class ModernVarroaDetectorApp:
         # Main title with modern styling
         title_label = tk.Label(
             title_frame,
-            text="🐝 Varroa Detector",
+            text="Varroa Detector",
             font=self.fonts['title'],
             bg=self.colors['bg_primary'],
             fg=self.colors['gradient_end']
@@ -633,7 +647,22 @@ class ModernVarroaDetectorApp:
             fg=self.colors['success']
         )
         self.status_label.pack(pady=(0, 5))
-    
+
+    @staticmethod
+    def _draw_folder_bitmap(canvas, cx, cy, color):
+        """Draw a small flat folder icon from plain shapes (no emoji glyph)."""
+        canvas.create_polygon(
+            cx - 18, cy - 6,
+            cx - 6, cy - 6,
+            cx - 2, cy - 10,
+            cx + 10, cy - 10,
+            cx + 10, cy - 6,
+            cx + 18, cy - 6,
+            cx + 18, cy + 10,
+            cx - 18, cy + 10,
+            fill=color, outline=''
+        )
+
     def create_drag_drop_section(self, parent):
         """Create modern drag and drop area"""
         # Card container with softer styling
@@ -646,7 +675,7 @@ class ModernVarroaDetectorApp:
         
         title_label = tk.Label(
             header_frame,
-            text="🗂️ Dataset Input",
+            text="Dataset Input",
             font=self.fonts['heading'],
             bg=self.colors['bg_secondary'],
             fg=self.colors['text_primary']
@@ -668,14 +697,12 @@ class ModernVarroaDetectorApp:
         drop_content = tk.Frame(self.drop_frame, bg=self.colors['bg_tertiary'])
         drop_content.place(relx=0.5, rely=0.5, anchor="center")
         
-        self.drop_icon = tk.Label(
-            drop_content,
-            text="📂",
-            font=('Segoe UI', 24),
-            bg=self.colors['bg_tertiary'],
-            fg=self.colors['text_muted']
+        self.drop_icon = tk.Canvas(
+            drop_content, width=40, height=30,
+            bg=self.colors['bg_tertiary'], highlightthickness=0
         )
         self.drop_icon.pack()
+        self._draw_folder_bitmap(self.drop_icon, 20, 17, self.colors['text_muted'])
         
         self.drop_text = tk.Label(
             drop_content,
@@ -714,9 +741,9 @@ class ModernVarroaDetectorApp:
                 return
             self.drop_frame.drop_target_register(self.DND_FILES)
             self.drop_frame.dnd_bind('<<Drop>>', self.on_drop)
-            print("✅ Drag-and-drop area registered")
+            print("[OK] Drag-and-drop area registered")
         except Exception as e:
-            print(f"⚠️ Failed to enable drag-and-drop: {e}")
+            print(f"[WARN] Failed to enable drag-and-drop: {e}")
     
     def on_drop(self, event):
         """Handle drag and drop events"""
@@ -734,7 +761,7 @@ class ModernVarroaDetectorApp:
         """Animate successful drop"""
         original_bg = self.drop_frame.cget('bg')
         self.drop_frame.configure(bg=self.colors['success'])
-        self.drop_text.configure(text="✅ Folder loaded successfully!", fg=self.colors['text_primary'])
+        self.drop_text.configure(text="Folder loaded successfully!", fg=self.colors['text_primary'])
         
         # Reset after animation
         self.root.after(1500, lambda: [
@@ -760,27 +787,27 @@ class ModernVarroaDetectorApp:
     
     def refresh_zone_display(self):
         """Refresh the zone display to reflect updated MiteManager data"""
-        print("🔄 Refreshing zone display...")
+        print("[INFO] Refreshing zone display...")
         try:
             if hasattr(self, 'selected_folder') and self.selected_folder and hasattr(self.selected_folder, 'get'):
                 folder_path = self.selected_folder.get()
                 if folder_path:
-                    print(f"🔄 Refreshing zones for folder: {folder_path}")
+                    print(f"[INFO] Refreshing zones for folder: {folder_path}")
                     self.load_and_display_first_image(folder_path)
                     return
             
             # Alternative: try to refresh the current image if it exists
             if hasattr(self, 'current_pil_image') and self.current_pil_image:
-                print("🔄 Refreshing current image with zone overlay")
+                print("[INFO] Refreshing current image with zone overlay")
                 # Convert PIL image to numpy array for zone overlay
                 image_array = np.array(self.current_pil_image)
                 image_with_zones = self.apply_zone_overlay(image_array)
                 self.display_image(image_with_zones)
                 return
                 
-            print("⚠️ Cannot refresh zones - no image loaded or folder selected")
+            print("[WARN] Cannot refresh zones - no image loaded or folder selected")
         except Exception as e:
-            print(f"❌ Error refreshing zone display: {e}")
+            print(f"[ERROR] Error refreshing zone display: {e}")
     
     def load_and_display_first_image(self, folder_path):
         """Load and display the first image from the dataset with zone overlay"""
@@ -925,13 +952,13 @@ class ModernVarroaDetectorApp:
             # Add zone label using actual zone_id from MiteManager
             # Zone text already defined above, just add lock indicator if needed
             if self.zones_locked:
-                zone_text += " 🔒"
-            
+                zone_text += " (locked)"
+
             # Add visual indicators based on mite detection status
             if mite_count > 0:
-                zone_text += f" 🔍 ({mite_count} mites detected)"
+                zone_text += f" ({mite_count} mites detected)"
             else:
-                zone_text += f" ✅ (No mites)"
+                zone_text += f" (No mites)"
             
             try:
                 # Try to use a font, fallback to default if not available
@@ -1007,7 +1034,7 @@ class ModernVarroaDetectorApp:
                 # Add zone label with lock indicator
                 zone_text = f"Zone {class_id}"
                 if self.zones_locked:
-                    zone_text += " 🔒"
+                    zone_text += " (locked)"
                 
                 try:
                     # Try to use a font, fallback to default if not available
@@ -1084,7 +1111,7 @@ class ModernVarroaDetectorApp:
         self.image_display_label.pack(expand=True, pady=50)
         self.image_display_label.configure(
             image='',
-            text=f"⚠️ {error_message}",
+            text=f"{error_message}",
             font=self.fonts['body'],
             fg=self.colors['error']
         )
@@ -1116,7 +1143,7 @@ class ModernVarroaDetectorApp:
         # Subtitle for reanalysis mode
         subtitle_label = tk.Label(
             header_frame,
-            text="🔄 Running in Reanalysis Mode",
+            text="Running in Reanalysis Mode",
             font=self.fonts['small'],
             bg=self.colors['bg_secondary'],
             fg=self.colors['accent']
@@ -1209,7 +1236,7 @@ class ModernVarroaDetectorApp:
         
         title_label = tk.Label(
             header_frame,
-            text="🖼️ Image Preview with Zone Overlay",
+            text="Image Preview with Zone Overlay",
             font=self.fonts['heading'],
             bg=self.colors['bg_secondary'],
             fg=self.colors['text_primary']
@@ -1253,7 +1280,7 @@ class ModernVarroaDetectorApp:
         # Fallback image display label
         self.image_display_label = tk.Label(
             canvas_frame,
-            text="📂 Select a dataset folder to see the first image with zone overlay",
+            text="Select a dataset folder to see the first image with zone overlay",
             font=self.fonts['body'],
             bg=self.colors['surface'],
             fg=self.colors['text_muted'],
@@ -1286,7 +1313,7 @@ class ModernVarroaDetectorApp:
         # Panel header
         panel_header = tk.Label(
             right_frame,
-            text="🔍 Zone Information",
+            text="Zone Information",
             font=self.fonts['subheading'],
             bg=self.colors['bg_tertiary'],
             fg=self.colors['text_primary']
@@ -1299,7 +1326,7 @@ class ModernVarroaDetectorApp:
         
         self.zone_lock_status = tk.Label(
             self.zone_status_frame,
-            text="🔓 Zones Unlocked",
+            text="Zones Unlocked",
             font=self.fonts['small'],
             bg=self.colors['bg_tertiary'],
             fg=self.colors['warning']
@@ -1390,7 +1417,7 @@ class ModernVarroaDetectorApp:
                 self.update_verify_button_state()
             
             # Refresh display to show selection visually - use immediate update
-            print(f"🖱️ Zone {clicked_zone + 1} {'deselected' if self.selected_zone is None else 'selected'}")
+            print(f"[INFO] Zone {clicked_zone + 1} {'deselected' if self.selected_zone is None else 'selected'}")
             self.root.after_idle(self.refresh_zone_display)  # Use after_idle for immediate update
         else:
             # Clicked outside any zone - deselect
@@ -1590,7 +1617,7 @@ class ModernVarroaDetectorApp:
         # Update button
         update_button = tk.Button(
             self.zone_text_editor_frame,
-            text="💾 Update Zone ID",
+            text="Update Zone ID",
             font=self.fonts['small'],
             bg=self.colors['success'],
             fg='white',
@@ -1632,7 +1659,7 @@ class ModernVarroaDetectorApp:
                 try:
                     if hasattr(self, 'mite_manager') and self.mite_manager:
                         self.mite_manager.save()
-                        print(f"✅ Persisted MiteManager after updating zone {zone_index}")
+                        print(f"[OK] Persisted MiteManager after updating zone {zone_index}")
                 except Exception as e:
                     print(f"Warning: Could not persist MiteManager after zone update: {e}")
         
@@ -1647,7 +1674,7 @@ class ModernVarroaDetectorApp:
         self.update_zone_info_display(zone_index)
         self.root.after_idle(self.refresh_zone_display)  # Use immediate refresh
         
-        print(f"✅ Zone ID updated to: {new_text}")  # Print instead of popup
+        print(f"[OK] Zone ID updated to: {new_text}")  # Print instead of popup
     
     def update_verify_button_state(self):
         """Update the state of verification buttons based on current conditions"""
@@ -1658,7 +1685,7 @@ class ModernVarroaDetectorApp:
                 if (self.analysis_complete_flag or self.recording1_pause) and self.zone_coordinates:
                     if hasattr(self, 'verify_button'):
                         try:
-                            self.verify_button.configure(text="🔍 Click Zone to Edit Text", bg=self.colors['accent'])
+                            self.verify_button.configure(text="Click Zone to Edit Text", bg=self.colors['accent'])
                         except Exception:
                             pass
                     if hasattr(self, 'verify_all_button'):
@@ -1669,7 +1696,7 @@ class ModernVarroaDetectorApp:
                 else:
                     if hasattr(self, 'verify_button'):
                         try:
-                            self.verify_button.configure(text="🔍 Click Zone to Edit Text", bg=self.colors['text_muted'])
+                            self.verify_button.configure(text="Click Zone to Edit Text", bg=self.colors['text_muted'])
                         except Exception:
                             pass
                     if hasattr(self, 'verify_all_button'):
@@ -1732,36 +1759,45 @@ class ModernVarroaDetectorApp:
             return
         
         for mite in self.mite_zones:
-            status_icon = "✅" if mite.get('text_verified', False) else "⏳"
+            status_icon = "[verified]" if mite.get('text_verified', False) else "[pending]"
             status = mite.get('status', 'unknown')
             zone_id = mite.get('zone_id', 'N/A')
             mite_id = mite.get('mite_id', 'unknown')
-            
+
             display_text = f"{status_icon} {mite_id} (Zone {zone_id + 1}) - {status}"
             self.mite_listbox.insert(tk.END, display_text)
     
     def create_progress_section(self, parent):
-        """Create modern progress section"""
+        """Create the analysis status section.
+
+        Earlier versions drove a determinate progress bar from a handful of
+        hardcoded percentages (10/20/40/80/100). Since most of that range is
+        spent inside a single opaque backend call, the bar would jump once
+        then sit still for the bulk of the run - reading as stuck rather than
+        working. A plain status message plus an indeterminate busy bar (only
+        animates while work is actually happening, makes no completion claim)
+        is a more honest and much less janky substitute.
+        """
         card_frame = tk.Frame(parent, bg=self.colors['bg_secondary'], relief='flat', borderwidth=0)
         card_frame.pack(fill="x", pady=(0, 25), padx=15)
-        
+
         # Header
         header_frame = tk.Frame(card_frame, bg=self.colors['bg_secondary'])
         header_frame.pack(fill="x", padx=20, pady=(20, 15))
-        
+
         title_label = tk.Label(
             header_frame,
-            text="🧪 Analysis Progress",
+            text="Analysis Status",
             font=self.fonts['heading'],
             bg=self.colors['bg_secondary'],
             fg=self.colors['text_primary']
         )
         title_label.pack(anchor="w")
-        
-        # Progress content
+
+        # Status content
         progress_content = tk.Frame(card_frame, bg=self.colors['bg_secondary'])
         progress_content.pack(fill="x", padx=20, pady=(0, 20))
-        
+
         # Status label
         self.progress_label = tk.Label(
             progress_content,
@@ -1771,79 +1807,44 @@ class ModernVarroaDetectorApp:
             fg=self.colors['text_secondary']
         )
         self.progress_label.pack(pady=(0, 15))
-        
-        # Modern progress bar
+
+        # Busy indicator: animates only while work is in progress, makes no
+        # claim about how much is left.
         self.progress_bar = ttk.Progressbar(
             progress_content,
-            mode='determinate',
+            mode='indeterminate',
             length=600,
             style='Modern.Horizontal.TProgressbar'
         )
         self.progress_bar.pack()
-        
-        # Percentage label
-        self.progress_percent = tk.Label(
-            progress_content,
-            text="0%",
-            font=self.fonts['small'],
-            bg=self.colors['bg_secondary'],
-            fg=self.colors['text_muted']
-        )
-        self.progress_percent.pack(pady=(5, 0))
 
-        # Spinner (indeterminate / animated wheel)
-        self.spinner_label = tk.Label(
-            progress_content,
-            text="",
-            font=('Segoe UI', 18, 'bold'),
-            bg=self.colors['bg_secondary'],
-            fg=self.colors['accent']
-        )
-        self.spinner_label.pack(pady=(10, 0))
-        self._spinner_running = False
-        self._spinner_cycle = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"]
-        self._spinner_index = 0
-
-    def start_spinner(self, message: str = "Running analysis..."):
-        """Start spinner animation with a status message."""
-        if not hasattr(self, 'spinner_label'):
-            return
-        self._spinner_running = True
+    def start_busy_indicator(self, message: str = "Running analysis..."):
+        """Show the busy indicator is animating and update the status message."""
         if hasattr(self, 'progress_label'):
             try:
                 self.progress_label.configure(text=message, fg=self.colors.get('text_primary', 'black'))
             except Exception:
                 pass
-        self._animate_spinner()
-
-    def stop_spinner(self, final_message: str = "Analysis complete"):
-        """Stop spinner and show a final message."""
-        self._spinner_running = False
-        if hasattr(self, 'spinner_label'):
+        if hasattr(self, 'progress_bar'):
             try:
-                self.spinner_label.configure(text="")
+                self.progress_bar.start(12)
+            except Exception:
+                pass
+
+    def stop_busy_indicator(self, final_message: str = "Analysis complete", color: str = None):
+        """Stop the busy indicator and show a final status message."""
+        if hasattr(self, 'progress_bar'):
+            try:
+                self.progress_bar.stop()
             except Exception:
                 pass
         if hasattr(self, 'progress_label'):
             try:
-                self.progress_label.configure(text=final_message, fg=self.colors.get('success', 'green'))
+                self.progress_label.configure(text=final_message, fg=color or self.colors.get('success', 'green'))
             except Exception:
                 pass
 
-    def _animate_spinner(self):
-        """Internal: update spinner frame."""
-        if not self._spinner_running:
-            return
-        try:
-            frame = self._spinner_cycle[self._spinner_index % len(self._spinner_cycle)]
-            self._spinner_index += 1
-            self.spinner_label.configure(text=frame)
-        except Exception:
-            pass
-        # Schedule next frame
-        if self._spinner_running:
-            self.root.after(80, self._animate_spinner)
-    
+
     def create_action_buttons_section(self, parent):
         """Create modern action buttons"""
         button_frame = tk.Frame(parent, bg=self.colors['bg_primary'])
@@ -1852,7 +1853,7 @@ class ModernVarroaDetectorApp:
         # Start button with more rounded appearance
         self.start_button = tk.Button(
             button_frame,
-            text="🚀 Start Analysis",
+            text="Start Analysis",
             font=self.fonts['subheading'],
             bg=self.colors['success'],
             fg='white',
@@ -1868,7 +1869,7 @@ class ModernVarroaDetectorApp:
         # Stop button with softer styling
         self.stop_button = tk.Button(
             button_frame,
-            text="⏹️ Stop",
+            text="Stop",
             font=self.fonts['subheading'],
             bg=self.colors['error'],
             fg='white',
@@ -1938,7 +1939,7 @@ class ModernVarroaDetectorApp:
         # Download ZIP button (centered)
         self.download_button = tk.Button(
             buttons_frame,
-            text="🗂️ Download Results",
+            text="Download Results",
             font=self.fonts['body'],
             bg=self.colors['warning'],
             fg='white',
@@ -2012,13 +2013,8 @@ class ModernVarroaDetectorApp:
         self.analysis_running = True
         self.start_button.configure(state="disabled", bg=self.colors['bg_tertiary'])
         self.stop_button.configure(state="normal", bg=self.colors['error'])
-        self.progress_bar['value'] = 0
-        self.progress_percent.configure(text="0%")
-        self.progress_label.configure(text="Initializing analysis...", fg=self.colors['text_primary'])
         self.status_label.configure(text="● Running", fg=self.colors['warning'])
-        # Start spinner for visual feedback
-        if hasattr(self, 'start_spinner'):
-            self.start_spinner("Initializing analysis...")
+        self.start_busy_indicator("Initializing analysis...")
         
         # Lock zones immediately when analysis starts to prevent changes during analysis
         self.lock_zones()
@@ -2038,6 +2034,10 @@ class ModernVarroaDetectorApp:
         num_recordings = 2  # Default value for reanalysis
         dead_streak = int(self.dead_streak.get())
         enable_text_recognition = self.enable_ocr.get()
+        # Remembered so the recording-0 pause knows whether to prompt for
+        # manual zone labels (OCR never ran, so zone IDs are still blank).
+        self._ocr_enabled_for_run = enable_text_recognition
+        self._manual_labels_prompted = False
 
         # Store parameters for potential continuation after recording 1
         self.continue_analysis_params = (folder_path, name, num_per_plate, reanalyze, num_recordings)
@@ -2064,7 +2064,7 @@ class ModernVarroaDetectorApp:
             mite_manager_path = os.path.join(os.path.dirname(__file__), "classes", "mite_manager.plk")
             
             if os.path.exists(mite_manager_path):
-                print(f"📁 Found MiteManager during analysis: {mite_manager_path}")
+                print(f"[INFO] Found MiteManager during analysis: {mite_manager_path}")
 
                 # Automatically load the saved MiteManager (no prompt) and pause for verification
                 try:
@@ -2072,7 +2072,7 @@ class ModernVarroaDetectorApp:
                         self.mite_manager = pickle.load(f)
 
                     self.mite_manager_loaded = True
-                    print(f"✅ Auto-loaded MiteManager during analysis with {len(self.mite_manager.zones)} zones")
+                    print(f"[OK] Auto-loaded MiteManager during analysis with {len(self.mite_manager.zones)} zones")
 
                     # Pause analysis after recording 1 for text verification
                     self.pause_after_recording1()
@@ -2099,7 +2099,7 @@ class ModernVarroaDetectorApp:
     
     def pause_after_recording1(self):
         """Pause analysis after recording 1 for text verification"""
-        print("⏸️ Pausing analysis after recording 1 for text verification...")
+        print("[INFO] Pausing analysis after recording 1 for text verification...")
 
         # Set pause flags
         self.recording1_pause = True
@@ -2122,7 +2122,7 @@ class ModernVarroaDetectorApp:
     
     def simulate_recording1_pause(self):
         """Simulate recording 1 pause when analysis completed without triggering it"""
-        print("🔄 Simulating recording 1 pause behavior...")
+        print("[INFO] Simulating recording 1 pause behavior...")
         
         # Don't show the notification popup since analysis is already complete
         # Just enable text verification state
@@ -2141,29 +2141,29 @@ class ModernVarroaDetectorApp:
         if hasattr(self, 'progress_label'):
             try:
                 self.progress_label.configure(
-                    text="🔍 Verify texts and continue",
+                    text="Verify texts and continue",
                     fg=self.colors.get('warning', 'orange')
                 )
             except Exception:
                 pass
 
-        # Hide spinner during verification phase
-        if hasattr(self, 'spinner_label') and self.spinner_label.winfo_exists():
-            if hasattr(self, 'stop_spinner'):
-                self.stop_spinner("Paused for verification")
+        # Stop the busy indicator during verification - nothing is running.
+        # (Not stop_busy_indicator(): that would overwrite the warning-colored
+        # message just set above.)
+        if hasattr(self, 'progress_bar'):
             try:
-                self.spinner_label.pack_forget()
+                self.progress_bar.stop()
             except Exception:
                 pass
-        
+
         # Update status
         if hasattr(self, 'status_label'):
-            self.status_label.configure(text="⏸️ Paused for verification", fg=self.colors.get('warning', 'orange'))
+            self.status_label.configure(text="Paused for verification", fg=self.colors.get('warning', 'orange'))
         
         # Replace start button with continue button
         if hasattr(self, 'start_button'):
             self.start_button.configure(
-                text="➡️ Continue Analysis",
+                text="Continue Analysis",
                 command=self.continue_analysis,
                 state="normal",
                 bg=self.colors.get('accent', 'blue')  # Use accent color with fallback
@@ -2178,7 +2178,7 @@ class ModernVarroaDetectorApp:
         confirms, reload from disk and set up the recording1 pause UI so edits operate on the
         persisted stage (ensuring recording 2 will use user-updated zone IDs).
         """
-        print("⏸️ Analysis paused after recording 1 - starting text verification")
+        print("[INFO] Analysis paused after recording 1 - starting text verification")
 
         # Store the mite manager instance for text verification
         self.mite_manager = mite_manager_instance
@@ -2187,7 +2187,7 @@ class ModernVarroaDetectorApp:
         try:
             if hasattr(self.mite_manager, 'save'):
                 self.mite_manager.save()
-                print(f"✅ Saved MiteManager to disk from pause callback: {getattr(self.mite_manager, 'save_path', 'classes/mite_manager.plk')}")
+                print(f"[OK] Saved MiteManager to disk from pause callback: {getattr(self.mite_manager, 'save_path', 'classes/mite_manager.plk')}")
         except Exception as e:
             print(f"Warning: could not save MiteManager from pause callback: {e}")
 
@@ -2197,9 +2197,9 @@ class ModernVarroaDetectorApp:
             if os.path.exists(mite_manager_path):
                 with open(mite_manager_path, 'rb') as f:
                     self.mite_manager = pickle.load(f)
-                    print(f"🔁 Auto-reloaded MiteManager from disk for verification: {mite_manager_path}")
+                    print(f"[INFO] Auto-reloaded MiteManager from disk for verification: {mite_manager_path}")
             else:
-                print(f"⚠️ Expected saved MiteManager not found at: {mite_manager_path}")
+                print(f"[WARN] Expected saved MiteManager not found at: {mite_manager_path}")
         except Exception as e:
             print(f"Warning: failed to auto-reload MiteManager from disk: {e}")
 
@@ -2207,7 +2207,7 @@ class ModernVarroaDetectorApp:
         self.root.after(0, self.setup_recording1_pause)
 
         # No need to block here - the main.py will handle the waiting
-        print("📱 GUI pause setup complete - text editing should now be available")
+        print("[INFO] GUI pause setup complete - text editing should now be available")
         return True
     
     def setup_recording1_pause(self):
@@ -2223,16 +2223,55 @@ class ModernVarroaDetectorApp:
         
         # If we have a mite manager from the pause callback, use it directly
         if hasattr(self, 'mite_manager') and self.mite_manager:
-            print(f"✅ Using MiteManager from analysis pause with {len(self.mite_manager.zones)} zones")
+            print(f"[OK] Using MiteManager from analysis pause with {len(self.mite_manager.zones)} zones")
             self.load_mite_data_from_manager()
         else:
             # Fallback to loading from files
             self.load_analysis_results()
-        
+
+        # OCR never ran for this analysis, so every zone still has its
+        # default "EMPTY" label - point the user at the existing per-zone
+        # editor (click a zone -> inline text box in the panel on the
+        # right) instead of leaving them to notice "EMPTY" zone names later.
+        if not self._ocr_enabled_for_run and not self._manual_labels_prompted:
+            self._manual_labels_prompted = True
+            self.root.after(150, self.prompt_manual_zone_labels)
+
+    def prompt_manual_zone_labels(self):
+        """Point the user at the existing per-zone text editor for every zone
+        that has mites but no label, since OCR was disabled for this run.
+
+        Reuses the click-to-edit flow already used to correct OCR mistakes
+        (on_image_click -> update_zone_info_display -> create_zone_text_editor
+        -> update_zone_text) rather than adding a separate input dialog.
+        """
+        if not self.mite_manager or not getattr(self.mite_manager, 'zones', None):
+            return
+
+        unlabeled = [
+            i for i, zone in enumerate(self.mite_manager.zones)
+            if len(getattr(zone, 'mites', [])) > 0 and getattr(zone, 'zone_id', None) in (None, "EMPTY")
+        ]
+        if not unlabeled:
+            return
+
+        if hasattr(self, 'status_label'):
+            self.status_label.configure(
+                text=f"Click each highlighted zone below to enter its label ({len(unlabeled)} left)",
+                fg=self.colors.get('warning', 'orange')
+            )
+
+        # Open the editor for the first one so the panel is visible immediately.
+        self.selected_zone = unlabeled[0]
+        self.text_verification_active = True
+        self.update_zone_info_display(self.selected_zone)
+        self.update_verify_button_state()
+        self.root.after_idle(self.refresh_zone_display)
+
         # Update buttons to show continue state
         if hasattr(self, 'analyze_button'):
             self.analyze_button.configure(
-                text="▶️ Continue to Recording 2",
+                text="Continue to Recording 2",
                 state="normal",
                 command=self.continue_analysis,
                 bg=self.colors.get('accent', 'blue')
@@ -2240,18 +2279,18 @@ class ModernVarroaDetectorApp:
         
         # Enable verification buttons
         self.update_verify_button_state()
-        
+
         # Start checking analysis state periodically
         self.check_analysis_state()
-    
+
     def load_mite_data_from_manager(self):
         """Load mite data directly from the MiteManager instance (for immediate pause)"""
         if not self.mite_manager or not hasattr(self.mite_manager, 'zones'):
-            print("❌ No valid MiteManager available")
+            print("[ERROR] No valid MiteManager available")
             return False
         
         try:
-            print(f"🔄 Loading mite data from MiteManager with {len(self.mite_manager.zones)} zones")
+            print(f"[INFO] Loading mite data from MiteManager with {len(self.mite_manager.zones)} zones")
             
             # Extract mite data from MiteManager zones
             self.mite_zones = []
@@ -2285,8 +2324,8 @@ class ModernVarroaDetectorApp:
                 
                 zone_index += 1
             
-            print(f"✅ Successfully loaded {len(self.mite_zones)} zones for text verification")
-            print(f"📍 Zone coordinates: {len(self.zone_coordinates)} zones ready for editing")
+            print(f"[OK] Successfully loaded {len(self.mite_zones)} zones for text verification")
+            print(f"[INFO] Zone coordinates: {len(self.zone_coordinates)} zones ready for editing")
             
             # Refresh the zone display to show current mite data
             self.refresh_zone_display()
@@ -2297,7 +2336,7 @@ class ModernVarroaDetectorApp:
             return True
             
         except Exception as e:
-            print(f"❌ Error loading mite data from manager: {e}")
+            print(f"[ERROR] Error loading mite data from manager: {e}")
             return False
     
     def check_analysis_state(self):
@@ -2308,7 +2347,7 @@ class ModernVarroaDetectorApp:
             
             # If analysis just became paused and we haven't handled it yet
             if state.paused and not self.recording1_pause and state.mite_manager:
-                print("🔄 Detected analysis pause - updating GUI...")
+                print("[INFO] Detected analysis pause - updating GUI...")
                 self.mite_manager = state.mite_manager
                 self.setup_recording1_pause()
                 
@@ -2325,7 +2364,7 @@ class ModernVarroaDetectorApp:
         if not self.recording1_pause:
             return
         
-        print("▶️ Continuing analysis from recording 1...")
+        print("[INFO] Continuing analysis from recording 1...")
         
         # Reset pause flags
         self.recording1_pause = False
@@ -2342,7 +2381,7 @@ class ModernVarroaDetectorApp:
         self.analysis_running = True
         if hasattr(self, 'start_button'):
             self.start_button.configure(
-                text="🔄 Start Analysis",
+                text="Start Analysis",
                 command=self.start_analysis,
                 state="disabled",
                 bg=self.colors.get('bg_tertiary', 'lightgray')
@@ -2351,19 +2390,9 @@ class ModernVarroaDetectorApp:
         if hasattr(self, 'stop_button'):
             self.stop_button.configure(state="normal", bg=self.colors.get('error', 'red'))
         
-        if hasattr(self, 'progress_label'):
-            # Do not alter existing text over progress bar per user request
-            pass
+        # Resume the busy indicator now that recording 2 is starting
+        self.start_busy_indicator("Processing recordings...")
 
-        # Restore spinner when continuing
-        if hasattr(self, 'spinner_label'):
-            try:
-                self.spinner_label.pack(pady=(10,0))
-            except Exception:
-                pass
-        if hasattr(self, 'start_spinner'):
-            self.start_spinner("Processing recordings ...")
-        
         if hasattr(self, 'status_label'):
             self.status_label.configure(text="● Running", fg=self.colors.get('warning', 'orange'))
         
@@ -2372,36 +2401,39 @@ class ModernVarroaDetectorApp:
         try:
             from main import continue_analysis_from_gui
             continue_analysis_from_gui()
-            print("✅ Analysis continuation signal sent successfully")
+            print("[OK] Analysis continuation signal sent successfully")
         except Exception as e:
-            print(f"❌ Error continuing analysis: {e}")
+            print(f"[ERROR] Error continuing analysis: {e}")
             
         
         # Note: The original analysis thread will now continue with recording 2
     
     def run_analysis(self, folder_path, name, num_per_plate, reanalyze, num_recordings, dead_streak, enable_text_recognition=True):
-        """Run the analysis in a separate thread"""
+        """Run the analysis in a separate thread.
+
+        Status text is only updated at real milestones (not on a timer with
+        made-up percentages) - the busy indicator communicates "still
+        working" for whatever happens in between.
+        """
         try:
-            # Update progress
-            self.root.after(0, lambda: self.update_progress(10, "Setting up analysis environment..."))
-            
+            self.root.after(0, lambda: self.update_progress(0, "Setting up analysis environment..."))
+
             # Create temporary directory for this analysis
             self.temp_results_dir = tempfile.mkdtemp(prefix="varroa_analysis_", suffix=f"_{name}")
-            print(f"📁 Created temporary analysis directory: {self.temp_results_dir}")
-            
-            # Update progress
-            self.root.after(0, lambda: self.update_progress(20, "Loading AI detector..."))
-            
+            print(f"[INFO] Created temporary analysis directory: {self.temp_results_dir}")
+
             # Lazy import to avoid issues at startup
             try:
                 from main import predict
             except ImportError as e:
                 raise RuntimeError(f"Could not import analysis module: {e}")
-            
-            # Update progress
-            self.root.after(0, lambda: self.update_progress(40, "detecting mites and reading text..."))
-            
-            # Run the actual prediction with temporary output folder and pause callback
+
+            self.root.after(0, lambda: self.update_progress(
+                0, "Detecting mites and reading zone text..."))
+
+            # Run the actual prediction with temporary output folder and pause callback.
+            # This single call covers detection, OCR, tracking and report generation for
+            # every recording - only the recording-0 pause interrupts it.
             predict(
                 folder_path=folder_path,
                 name=name,
@@ -2415,37 +2447,35 @@ class ModernVarroaDetectorApp:
                 dead_streak=dead_streak,
                 enable_text_recognition=enable_text_recognition
             )
-            
-            # Update progress
-            self.root.after(0, lambda: self.update_progress(80, "Generating comprehensive reports..."))
-            
-            # Simulate final processing
-            time.sleep(1)
-            
+
             # Set results path to the temporary directory
             self.results_path = self.temp_results_dir
-            print(f"✅ Analysis completed in: {self.temp_results_dir}")
-            
+            print(f"[OK] Analysis completed in: {self.temp_results_dir}")
+
             # Update UI on completion
             self.root.after(0, self.analysis_completed)
-            
+
         except Exception as e:
             error_msg = f"Analysis failed: {str(e)}"
             self.root.after(0, lambda: self.analysis_failed(error_msg))
     
     def update_progress(self, value, message):
-        """Update progress bar and message"""
-        self.progress_bar['value'] = value
-        self.progress_percent.configure(text=f"{int(value)}%")
-        self.progress_label.configure(text=message)
-        self.root.update_idletasks()
-    
+        """Update the status message.
+
+        `value` is kept in the signature for backward compatibility with
+        existing call sites (main.py's pause callback passes one), but no
+        longer drives a fake percentage - see create_progress_section().
+        """
+        if hasattr(self, 'progress_label'):
+            self.progress_label.configure(text=message)
+        if hasattr(self, 'root'):
+            self.root.update_idletasks()
+
     def analysis_completed(self):
         """Handle successful analysis completion"""
         self.analysis_running = False
         self.analysis_complete_flag = True  # Mark analysis as completed for text verification
-        if hasattr(self, 'stop_spinner'):
-            self.stop_spinner("Analysis complete!")
+        self.stop_busy_indicator("Analysis complete!")
         
         # Reset recording 1 pause flags since full analysis is now complete
         self.recording1_pause = False
@@ -2460,19 +2490,15 @@ class ModernVarroaDetectorApp:
         # Reset start button back to normal start analysis function
         if hasattr(self, 'start_button'):
             self.start_button.configure(
-                text="🔄 Start Analysis",
+                text="Start Analysis",
                 command=self.start_analysis,
                 state="normal", 
                 bg=self.colors.get('success', 'green')
             )
         if hasattr(self, 'stop_button'):
             self.stop_button.configure(state="disabled", bg=self.colors.get('bg_tertiary', 'lightgray'))
-        if hasattr(self, 'progress_bar'):
-            self.progress_bar['value'] = 100
-        if hasattr(self, 'progress_percent'):
-            self.progress_percent.configure(text="100%")
         if hasattr(self, 'progress_label'):
-            self.progress_label.configure(text="✅ Analysis completed successfully!", 
+            self.progress_label.configure(text="Analysis completed successfully!",
                                         fg=self.colors.get('success', 'green'))
         if hasattr(self, 'status_label'):
             self.status_label.configure(text="● Complete", fg=self.colors.get('success', 'green'))
@@ -2480,7 +2506,7 @@ class ModernVarroaDetectorApp:
         # Update results section if it exists
         if hasattr(self, 'results_info'):
             self.results_info.configure(
-                text="🎉 Analysis completed! Results are ready for download.",
+                text="Analysis completed! Results are ready for download.",
                 fg=self.colors.get('success', 'green')
             )
         if hasattr(self, 'download_button'):
@@ -2496,13 +2522,13 @@ class ModernVarroaDetectorApp:
                              for zone in getattr(self.mite_manager, 'zones', []))
             
             if mites_found:
-                print("🔄 Simulating recording 1 pause - mites detected, enabling verification")
+                print("[INFO] Simulating recording 1 pause - mites detected, enabling verification")
                 self.simulate_recording1_pause()
         
         # Enable text verification if UI exists
         if hasattr(self, 'verify_button'):
             self.verify_button.configure(
-                text="🔍 Click zones to verify text",
+                text="Click zones to verify text",
                 state="normal",
                 bg=self.colors.get('accent', 'blue')
             )
@@ -2519,10 +2545,10 @@ class ModernVarroaDetectorApp:
                 self.clear_saved_stage(delete_pickle=True, restore_coords=True)
             except Exception as cleanup_error:
                 print(f"WARNING: cleanup during analysis_completed failed: {cleanup_error}")
-        
-    # Show completion message (non-blocking)
-    print("SUCCESS: Analysis completed successfully! Results are ready for download. Zones are now locked. Click on zones to verify detected text.")
-    
+
+        # Show completion message (non-blocking)
+        print("SUCCESS: Analysis completed successfully! Results are ready for download. Zones are now locked. Click on zones to verify detected text.")
+
     def lock_zones(self):
         """Lock zones to prevent modification after analysis"""
         self.zones_locked = True
@@ -2530,7 +2556,7 @@ class ModernVarroaDetectorApp:
         # Update zone lock status if UI elements exist
         if hasattr(self, 'zone_lock_status'):
             self.zone_lock_status.configure(
-                text="🔒 Zones Locked",
+                text="Zones Locked",
                 fg=self.colors['success'] if hasattr(self, 'colors') else 'green'
             )
         
@@ -2545,7 +2571,7 @@ class ModernVarroaDetectorApp:
         # Update zone lock status if UI elements exist
         if hasattr(self, 'zone_lock_status'):
             self.zone_lock_status.configure(
-                text="🔓 Zones Unlocked",
+                text="Zones Unlocked",
                 fg=self.colors['warning'] if hasattr(self, 'colors') else 'orange'
             )
         
@@ -2594,7 +2620,7 @@ class ModernVarroaDetectorApp:
                     with open(mite_manager_path, 'rb') as f:
                         self.mite_manager = pickle.load(f)
                     
-                    print(f"✅ Loaded MiteManager with {len(self.mite_manager.zones)} zones")
+                    print(f"[OK] Loaded MiteManager with {len(self.mite_manager.zones)} zones")
                     mite_manager_found = True
                     
                     # Update zone display colors to reflect detected mites
@@ -2627,7 +2653,7 @@ class ModernVarroaDetectorApp:
                     
                     zone_index += 1
                 
-                print(f"✅ Extracted {len(self.mite_zones)} mites from MiteManager")
+                print(f"[OK] Extracted {len(self.mite_zones)} mites from MiteManager")
                 
                 # Update mite list display
                 self.update_mite_list_display()
@@ -2802,13 +2828,9 @@ class ModernVarroaDetectorApp:
         
         self.start_button.configure(state="normal", bg=self.colors['success'])
         self.stop_button.configure(state="disabled", bg=self.colors['bg_tertiary'])
-        self.progress_bar['value'] = 0
-        self.progress_percent.configure(text="0%")
-        self.progress_label.configure(text="❌ Analysis failed", fg=self.colors['error'])
+        self.stop_busy_indicator("Analysis failed", color=self.colors['error'])
         self.status_label.configure(text="● Error", fg=self.colors['error'])
-        if hasattr(self, 'stop_spinner'):
-            self.stop_spinner("Analysis failed")
-        
+
         # Refresh image display to show unlocked zones
         if self.selected_folder.get():
             self.load_and_display_first_image(self.selected_folder.get())
@@ -2826,9 +2848,7 @@ class ModernVarroaDetectorApp:
             
             self.start_button.configure(state="normal", bg=self.colors['success'])
             self.stop_button.configure(state="disabled", bg=self.colors['bg_tertiary'])
-            self.progress_bar['value'] = 0
-            self.progress_percent.configure(text="0%")
-            self.progress_label.configure(text="Analysis stopped", fg=self.colors['warning'])
+            self.stop_busy_indicator("Analysis stopped", color=self.colors['warning'])
             self.status_label.configure(text="● Stopped", fg=self.colors['warning'])
             
             # Refresh image display to show unlocked zones
@@ -2920,11 +2940,11 @@ class ModernVarroaDetectorApp:
                     if self.temp_results_dir and os.path.exists(self.temp_results_dir):
                         try:
                             shutil.rmtree(self.temp_results_dir)
-                            print(f"✅ Cleaned up temporary directory: {self.temp_results_dir}")
+                            print(f"[OK] Cleaned up temporary directory: {self.temp_results_dir}")
                             self.temp_results_dir = None
                             self.results_path = None
                         except Exception as cleanup_error:
-                            print(f"⚠️  Warning: Could not clean up temp directory: {cleanup_error}")
+                            print(f"[WARN] Warning: Could not clean up temp directory: {cleanup_error}")
                             # Don't fail the whole operation for cleanup issues
                     
                     # Get folder name for success message
@@ -2934,7 +2954,7 @@ class ModernVarroaDetectorApp:
                     self.root.after(0, lambda: [
                         progress_window.destroy(),
                         self.download_button.configure(state="disabled", bg=self.colors['bg_tertiary']),
-                        self.results_info.configure(text="📁 Results downloaded and temporary files cleaned up", fg=self.colors['text_muted']),
+                        self.results_info.configure(text="Results downloaded and temporary files cleaned up", fg=self.colors['text_muted']),
                         print(f"INFO: Analysis results successfully saved to: {zip_path} (size: {self.get_file_size(zip_path)})")
                     ])
                     
@@ -3017,7 +3037,7 @@ class ModernVarroaDetectorApp:
             self.analysis_complete_flag = False
             self.analysis_paused = False
             self.recording1_pause = False
-            print("✅ Cleared in-memory MiteManager and analysis state")
+            print("[OK] Cleared in-memory MiteManager and analysis state")
         except Exception as e:
             print(f"Warning: could not clear in-memory state: {e}")
 
@@ -3043,7 +3063,7 @@ class ModernVarroaDetectorApp:
             except Exception:
                 pass
 
-            print("🔄 UI refreshed after clearing saved stage")
+            print("[INFO] UI refreshed after clearing saved stage")
         except Exception as e:
             print(f"Warning: could not refresh UI after clearing stage: {e}")
 

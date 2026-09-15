@@ -69,10 +69,26 @@ class Detector:
         """Check if the last detection found any objects."""
         if self.result is None:
             return False
-        
+
         return hasattr(self.result, 'boxes') and len(self.result.boxes) > 0
 
-    
+
+_detector_instance = None
+
+
+def get_detector():
+    """Return a process-wide cached Detector.
+
+    Reusing one instance across analyses run in the same app session avoids
+    reloading the YOLO weights from disk every time the user starts a new
+    analysis; run_detection() overwrites self.result each call so reuse is safe.
+    """
+    global _detector_instance
+    if _detector_instance is None:
+        _detector_instance = Detector()
+    return _detector_instance
+
+
 
 
 

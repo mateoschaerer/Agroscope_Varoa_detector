@@ -1,6 +1,7 @@
 import os
 import cv2
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor
 
 
 COUNTER_FILE = ".count"
@@ -11,16 +12,21 @@ def get_frames(folder_path, discobox_run=True, reanalyze=True):
     # Guard clauses
     if not folder_path:
         raise ValueError("Folder path must be provided")
-    
+
     # Resolve full folder path
     resolved_path = _resolve_folder_path(folder_path, discobox_run)
-    
+
     if not os.path.exists(resolved_path):
         raise FileNotFoundError(f"Folder does not exist: {resolved_path}")
-    
+
     # Get subfolders to process
     subfolders = _get_subfolders_to_process(resolved_path)
-    
+
+    # When not reanalyzing, only the last recording's stack is ever kept
+    # (see _return_frames_based_on_mode) - skip decoding the rest entirely.
+    if not reanalyze:
+        subfolders = [sorted(subfolders)[-1]]
+
     # Load frames from each subfolder
     frames_by_folder = {}
     for subfolder in subfolders:
@@ -29,11 +35,11 @@ def get_frames(folder_path, discobox_run=True, reanalyze=True):
             frames_by_folder[subfolder] = np.stack(frames)
 
 
-    
+
 
     if not frames_by_folder:
         raise ValueError("No images found in folder or none could be loaded.")
-    
+
     return  _return_frames_based_on_mode(frames_by_folder, reanalyze)
 
 
@@ -71,21 +77,27 @@ def _get_subfolders_to_process(folder_path):
 
 
 def _load_frames_from_folder(subfolder):
-    """Load all BMP frames from a specific folder."""
-    frames = []
-    
+    """Load all BMP frames from a specific folder.
+
+    Images are decoded in parallel (cv2.imread releases the GIL, so this is a
+    real speedup on disk-I/O-bound loads) while preserving on-disk sort order,
+    which the motion-based alive/dead analysis depends on.
+    """
+    img_paths = []
     for root, dirs, files in os.walk(subfolder, followlinks=True):
         for fname in files:
-            if not fname.lower().endswith(".bmp"):
-                continue
-            
-            img_path = os.path.join(root, fname)
-            frame = _load_single_image(img_path)
-            
-            if frame is not None:
-                frames.append(frame)
-    
-    return frames
+            if fname.lower().endswith(".bmp"):
+                img_paths.append(os.path.join(root, fname))
+
+    img_paths.sort()
+
+    if not img_paths:
+        return []
+
+    with ThreadPoolExecutor(max_workers=min(8, len(img_paths))) as executor:
+        loaded = list(executor.map(_load_single_image, img_paths))
+
+    return [frame for frame in loaded if frame is not None]
 
 
 def _load_single_image(img_path):
