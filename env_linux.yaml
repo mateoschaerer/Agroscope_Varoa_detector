@@ -2,7 +2,7 @@ name: myenv
 channels:
   - conda-forge
 dependencies:
-  - python>=3.10
+  - python>=3.10,<3.13
   - bzip2
   - ca-certificates
   - et_xmlfile
@@ -16,9 +16,6 @@ dependencies:
   - libexpat
   - libffi
   - libglib
-  - libiconv
-  - libintl
-  - libintl-devel
   - libjpeg-turbo
   - liblzma
   - libogg

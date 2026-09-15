@@ -53,9 +53,20 @@ if [ -z "$CONDA_BIN" ]; then
   err "  https://conda-forge.org/miniforge/"
   fail
 fi
+
+# Resolve symlinks (e.g. a conda binary symlinked into /usr/local/bin) so
+# CONDA_BASE actually points at the install root containing etc/profile.d/conda.sh
+if command -v readlink >/dev/null 2>&1; then
+  CONDA_BIN="$(readlink -f "$CONDA_BIN" 2>/dev/null || echo "$CONDA_BIN")"
+fi
 info "Using conda at: $CONDA_BIN"
 
 CONDA_BASE="$(cd "$(dirname "$CONDA_BIN")/.." && pwd)"
+if [ ! -f "$CONDA_BASE/etc/profile.d/conda.sh" ]; then
+  err "Could not find conda.sh under $CONDA_BASE/etc/profile.d/"
+  err "Your conda installation looks non-standard; activate it manually and re-run this script."
+  fail
+fi
 # shellcheck disable=SC1091
 source "$CONDA_BASE/etc/profile.d/conda.sh"
 
@@ -119,7 +130,7 @@ cat > "$DESKTOP_FILE" <<EOF
 Type=Application
 Name=Varroa Detector
 Comment=Launch Varroa Detector
-Exec=$LAUNCHER
+Exec="$LAUNCHER"
 Path=$SCRIPT_DIR
 Icon=$ICON_PATH
 Terminal=false
