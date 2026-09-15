@@ -306,7 +306,7 @@ class ModernVarroaDetectorApp:
         self.analysis_name = tk.StringVar(value="analysis_1")
         self.plates_per_recording = tk.StringVar(value="1")
         self.dead_streak = tk.StringVar(value="2")
-        self.enable_ocr = tk.BooleanVar(value=True)
+        self.enable_ocr = tk.BooleanVar(value=False)
         self._ocr_enabled_for_run = True
         self._manual_labels_prompted = False
         self.analysis_running = False
@@ -2217,7 +2217,11 @@ class ModernVarroaDetectorApp:
         self.analysis_paused = True
         # Update progress label to instruct the user
         try:
-            self.update_progress(60, "verify read text then press continue...")
+            pause_message = (
+                "Verify the read zone text, then press continue..." if self._ocr_enabled_for_run
+                else "Enter zone labels, then press continue..."
+            )
+            self.update_progress(60, pause_message)
         except Exception:
             pass
         
@@ -2428,8 +2432,11 @@ class ModernVarroaDetectorApp:
             except ImportError as e:
                 raise RuntimeError(f"Could not import analysis module: {e}")
 
-            self.root.after(0, lambda: self.update_progress(
-                0, "Detecting mites and reading zone text..."))
+            detecting_message = (
+                "Detecting mites and reading zone text..." if enable_text_recognition
+                else "Detecting mites..."
+            )
+            self.root.after(0, lambda: self.update_progress(0, detecting_message))
 
             # Run the actual prediction with temporary output folder and pause callback.
             # This single call covers detection, OCR, tracking and report generation for
