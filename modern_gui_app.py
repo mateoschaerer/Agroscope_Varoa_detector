@@ -294,6 +294,7 @@ class ModernVarroaDetectorApp:
         self.analysis_name = tk.StringVar(value="analysis_1")
         self.plates_per_recording = tk.StringVar(value="1")
         self.dead_streak = tk.StringVar(value="2")
+        self.enable_ocr = tk.BooleanVar(value=True)
         self.analysis_running = False
         self.results_path = None
         self.temp_results_dir = None  # Store temp directory path
@@ -1130,7 +1131,8 @@ class ModernVarroaDetectorApp:
         configs = [
             ("Analysis Name:", self.analysis_name, "entry"),
             ("sample rows per plate:", self.plates_per_recording, "combo", ["1", "2"]),
-            ("Dead Streak (frames):", self.dead_streak, "entry")
+            ("Dead Streak (frames):", self.dead_streak, "entry"),
+            ("Automatic Text Recognition (OCR):", self.enable_ocr, "checkbox")
         ]
         
         for i, config in enumerate(configs):
@@ -1177,7 +1179,22 @@ class ModernVarroaDetectorApp:
                 # Store reference to plates combobox for zone locking
                 if variable == self.plates_per_recording:
                     self.plates_combobox = widget
-        
+
+            elif widget_type == "checkbox":
+                widget = tk.Checkbutton(
+                    config_frame,
+                    variable=variable,
+                    text="Disable if analysis crashes on a slow/low-memory computer\n(zone labels are then entered manually)",
+                    justify="left",
+                    font=self.fonts['small'],
+                    bg=self.colors['bg_secondary'],
+                    fg=self.colors['text_secondary'],
+                    activebackground=self.colors['bg_secondary'],
+                    selectcolor=self.colors['surface'],
+                    anchor="w"
+                )
+                widget.grid(row=i, column=1, sticky="w", pady=8, padx=(15, 0))
+
         # Configure grid weights
         config_frame.columnconfigure(1, weight=1)
     
@@ -2020,14 +2037,15 @@ class ModernVarroaDetectorApp:
         reanalyze = True  # Always run in reanalysis mode
         num_recordings = 2  # Default value for reanalysis
         dead_streak = int(self.dead_streak.get())
-        
+        enable_text_recognition = self.enable_ocr.get()
+
         # Store parameters for potential continuation after recording 1
         self.continue_analysis_params = (folder_path, name, num_per_plate, reanalyze, num_recordings)
-        
+
         # Start analysis in separate thread
         analysis_thread = threading.Thread(
             target=self.run_analysis,
-            args=(folder_path, name, num_per_plate, reanalyze, num_recordings, dead_streak),
+            args=(folder_path, name, num_per_plate, reanalyze, num_recordings, dead_streak, enable_text_recognition),
             daemon=True
         )
         analysis_thread.start()
@@ -2361,7 +2379,7 @@ class ModernVarroaDetectorApp:
         
         # Note: The original analysis thread will now continue with recording 2
     
-    def run_analysis(self, folder_path, name, num_per_plate, reanalyze, num_recordings, dead_streak):
+    def run_analysis(self, folder_path, name, num_per_plate, reanalyze, num_recordings, dead_streak, enable_text_recognition=True):
         """Run the analysis in a separate thread"""
         try:
             # Update progress
@@ -2394,7 +2412,8 @@ class ModernVarroaDetectorApp:
                 count=2,
                 output_folder=self.temp_results_dir,  # Use temp directory
                 pause_callback=self.pause_for_text_verification,
-                dead_streak=dead_streak
+                dead_streak=dead_streak,
+                enable_text_recognition=enable_text_recognition
             )
             
             # Update progress
